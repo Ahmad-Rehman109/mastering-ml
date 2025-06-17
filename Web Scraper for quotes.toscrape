@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""
+Quotes Scraper with CSV Export
+Now saves data to CSV files that you can open in Excel!
+
+This script will:
+1. Get quotes from quotes.toscrape.com
+2. Save them to a CSV file
+3. Create separate CSV files for quotes and authors
+4. Show you some cool statistics
+"""
+
+# Install these if you don't have them:
+# pip install requests beautifulsoup4
+
+import requests
+from bs4 import BeautifulSoup
+import csv
+from datetime import datetime
+
+def get_quotes():
+    """Get quotes from the website"""
+    
+    print("🕷️ Starting CSV Quote Scraper!")
+    print("Visiting quotes.toscrape.com...")
+    
+    url = "http://quotes.toscrape.com"
+    
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raises an error for bad status codes
+        print("✅ Website loaded successfully!")
+    except requests.RequestException as e:
+        print(f"❌ Error loading website: {e}")
+        return []
+    
+    soup = BeautifulSoup(response.text, 'html.parser')
+    quote_boxes = soup.find_all('div', class_='quote')
+    
+    print(f"📝 Found {len(quote_boxes)} quotes on this page!")
+    
+    quotes_list = []
+    authors_info = {}  # To store unique author information
+    
+    for i, quote_box in enumerate(quote_boxes, 1):
+        try:
+            # Get quote text and clean it
+            quote_text = quote_box.find('span', class_='text').text.strip()
+            # Remove the opening and closing quotes
+            quote_text = quote_text.strip('"').strip('"')
+            
+            # Get author
+            author = quote_box.find('small', class_='author').text.strip()
+            
+            # Get tags
+            tag_elements = quote_box.find_all('a', class_='tag')
+            tags = [tag.text.strip() for tag in tag_elements]
+            tags_string = ', '.join(tags)  # Convert list to comma-separated string
+            
+            # Store quote information
+            quote_info = {
+                'quote_number': i,
+                'text': quote_text,
+                'author': author,
+                'tags': tags_string,
+                'num_tags': len(tags),
+                'word_count': len(quote_text.split()),
+                'scraped_date': datetime.now().strftime('%Y-%m-%d'),
+                'scraped_time': datetime.now().strftime('%H:%M:%S')
+            }
+            
+            quotes_list.append(quote_info)
+            
+            # Store author info (avoid duplicates)
+            if author not in authors_info:
+                authors_info[author] = {
+                    'author_name': author,
+                    'quote_count': 1,
+                    'tags_used': set(tags),
+                    'total_words': len(quote_text.split())
+                }
+            else:
+                authors_info[author]['quote_count'] += 1
+                authors_info[author]['tags_used'].update(tags)
+                authors_info[author]['total_words'] += len(quote_text.split())
+                
+            print(f"✅ Processed quote {i}: {author}")
+            
+        except Exception as e:
+            print(f"❌ Error processing quote {i}: {e}")
+            continue
+    
+    return quotes_list, authors_info
+
+def save_quotes_to_csv(quotes, filename='quotes_data.csv'):
+    """Save quotes to CSV file"""
+    
+    print(f"\n💾 Saving quotes to '{filename}'...")
+    
+    # Define the column headers
+    headers = [
+        'Quote Number',
+        'Quote Text', 
+        'Author',
+        'Tags',
+        'Number of Tags',
+        'Word Count',
+        'Date Scraped',
+        'Time Scraped'
+    ]
+    
+    try:
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            
+            # Write headers
+            writer.writerow(headers)
+            
+            # Write quote data
+            for quote in quotes:
+                writer.writerow([
+                    quote['quote_number'],
+                    quote['text'],
+                    quote['author'],
+                    quote['tags'],
+                    quote['num_tags'],
+                    quote['word_count'],
+                    quote['scraped_date'],
+                    quote['scraped_time']
+                ])
+        
+        print(f"✅ Quotes saved to '{filename}' successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error saving quotes to CSV: {e}")
+        return False
+
+def save_authors_to_csv(authors_info, filename='authors_data.csv'):
+    """Save author statistics to CSV file"""
+    
+    print(f"💾 Saving author data to '{filename}'...")
+    
+    headers = [
+        'Author Name',
+        'Number of Quotes',
+        'Unique Tags Used',
+        'Total Words Written',
+        'Average Words per Quote'
+    ]
+    
+    try:
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(headers)
+            
+            for author_name, info in authors_info.items():
+                # Convert set of tags to comma-separated string
+                tags_used = ', '.join(sorted(info['tags_used']))
+                
+                # Calculate average words per quote
+                avg_words = round(info['total_words'] / info['quote_count'], 1)
+                
+                writer.writerow([
+                    author_name,
+                    info['quote_count'],
+                    tags_used,
+                    info['total_words'],
+                    avg_words
+                ])
+        
+        print(f"✅ Author data saved to '{filename}' successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error saving authors to CSV: {e}")
+        return False
+
+def create_tags_csv(quotes, filename='tags_analysis.csv'):
+    """Create a CSV file analyzing tag popularity"""
+    
+    print(f"💾 Creating tag analysis in '{filename}'...")
+    
+    # Count tag frequency
+    tag_count = {}
+    for quote in quotes:
+        if quote['tags']:  # If there are tags
+            tags = [tag.strip() for tag in quote['tags'].split(',')]
+            for tag in tags:
+                tag_count[tag] = tag_count.get(tag, 0) + 1
+    
+    # Sort tags by popularity
+    sorted_tags = sorted(tag_count.items(), key=lambda x: x[1], reverse=True)
+    
+    try:
+        with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['Tag', 'Frequency', 'Percentage'])
+            
+            total_tag_uses = sum(tag_count.values())
+            
+            for tag, count in sorted_tags:
+                percentage = round((count / total_tag_uses) * 100, 1)
+                writer.writerow([tag, count, f"{percentage}%"])
+        
+        print(f"✅ Tag analysis saved to '{filename}' successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error creating tag analysis: {e}")
+        return False
+
+def show_statistics(quotes, authors_info):
+    """Display cool statistics about the scraped data"""
+    
+    print("\n" + "="*50)
+    print("📊 SCRAPING STATISTICS")
+    print("="*50)
+    
+    # Basic stats
+    print(f"📝 Total Quotes: {len(quotes)}")
+    print(f"👥 Total Authors: {len(authors_info)}")
+    
+    # Word statistics
+    total_words = sum(quote['word_count'] for quote in quotes)
+    avg_words = round(total_words / len(quotes), 1) if quotes else 0
+    print(f"📖 Total Words: {total_words}")
+    print(f"📏 Average Words per Quote: {avg_words}")
+    
+    # Tag statistics
+    all_tags = []
+    for quote in quotes:
+        if quote['tags']:
+            tags = [tag.strip() for tag in quote['tags'].split(',')]
+            all_tags.extend(tags)
+    
+    unique_tags = len(set(all_tags))
+    avg_tags = round(len(all_tags) / len(quotes), 1) if quotes else 0
+    print(f"🏷️ Unique Tags: {unique_tags}")
+    print(f"🔖 Average Tags per Quote: {avg_tags}")
+    
+    # Most prolific author
+    if authors_info:
+        most_prolific = max(authors_info.items(), key=lambda x: x[1]['quote_count'])
+        print(f"🏆 Most Quoted Author: {most_prolific[0]} ({most_prolific[1]['quote_count']} quotes)")
+    
+    # Most popular tags (top 5)
+    tag_count = {}
+    for tag in all_tags:
+        tag_count[tag] = tag_count.get(tag, 0) + 1
+    
+    if tag_count:
+        top_tags = sorted(tag_count.items(), key=lambda x: x[1], reverse=True)[:5]
+        print(f"\n🔥 Top 5 Most Popular Tags:")
+        for i, (tag, count) in enumerate(top_tags, 1):
+            print(f"   {i}. {tag} ({count} times)")
+
+def main():
+    """Main function that runs everything"""
+    
+    print("🚀 CSV Quote Scraper Starting!")
+    print("-" * 40)
+    
+    # Get the quotes
+    result = get_quotes()
+    if not result:
+        print("❌ Failed to get quotes. Exiting.")
+        return
+    
+    quotes, authors_info = result
+    
+    if not quotes:
+        print("❌ No quotes found. Exiting.")
+        return
+    
+    # Save to CSV files
+    print("\n" + "="*50)
+    print("💾 SAVING DATA TO CSV FILES")
+    print("="*50)
+    
+    # Save quotes
+    save_quotes_to_csv(quotes)
+    
+    # Save authors
+    save_authors_to_csv(authors_info)
+    
+    # Save tag analysis
+    create_tags_csv(quotes)
+    
+    # Show statistics
+    show_statistics(quotes, authors_info)
+    
+    print("\n" + "="*50)
+    print("🎉 SCRAPING COMPLETE!")
+    print("="*50)
+    print("Files created:")
+    print("📄 quotes_data.csv - All quotes with details")
+    print("👥 authors_data.csv - Author statistics") 
+    print("🏷️ tags_analysis.csv - Tag popularity analysis")
+    print("\nYou can now open these files in Excel or Google Sheets!")
+
+if __name__ == "__main__":
+    main()
